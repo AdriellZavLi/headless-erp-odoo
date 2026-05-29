@@ -27,7 +27,7 @@ import {
   SkinOutlined,
   ScissorOutlined,
 } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/useOrderStore";
 import Link from "next/link";
@@ -90,7 +90,6 @@ function useSatUsoCfdi() {
 export default function NuevaOrdenPage() {
   const router = useRouter();
   const [api, contextHolder] = notification.useNotification();
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Zustand global store
   const { customer, items, setCustomer, addItem, removeItem, clearCart } =
@@ -181,7 +180,40 @@ export default function NuevaOrdenPage() {
 
   // ─── Submit Order ───────────────────────────────────────────────────────
 
-  const handleSubmitOrder = async () => {
+  const submitOrderMutation = useMutation({
+    mutationFn: async (payload: { customer: any, items: any[] }) => {
+      const res = await fetch("/api/odoo/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Error al crear la orden en Odoo");
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error);
+      return result;
+    },
+    onSuccess: () => {
+      api.success({
+        title: "¡Orden Enviada con Éxito!",
+        description: `La orden de ${items.length} prenda(s) para ${customer?.name} ha sido registrada en Odoo.`,
+        placement: "topRight",
+        duration: 5,
+      });
+      clearCart();
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 1200);
+    },
+    onError: (error: any) => {
+      api.error({
+        title: "Error de Sincronización",
+        description: error.message || "No se pudo registrar la orden en Odoo.",
+        placement: "topRight",
+      });
+    },
+  });
+
+  const handleSubmitOrder = () => {
     if (!customer) {
       api.warning({
         title: "Cliente Requerido",
@@ -200,46 +232,30 @@ export default function NuevaOrdenPage() {
       return;
     }
 
-    setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    api.success({
-      title: "¡Orden Enviada con Éxito!",
-      description: `La orden de ${items.length} prenda(s) para ${customer.name} ha sido registrada en el sistema Odoo.`,
-      placement: "topRight",
-      duration: 5,
-    });
-
-    clearCart();
-    setTimeout(() => {
-      router.push("/dashboard");
-    }, 1200);
+    submitOrderMutation.mutate({ customer, items });
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] pb-12">
+    <div className="p-8 max-w-[1400px] mx-auto w-full space-y-8 flex-grow">
       {contextHolder}
 
       {/* Header Bar */}
-      <header className="w-full bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center gap-4">
+      <header className="w-full bg-white rounded-2xl p-6 flex items-center justify-between border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-6">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 text-slate-500 hover:text-violet-600 transition-colors duration-200 font-medium text-sm"
+            className="flex items-center gap-2 text-slate-500 hover:text-violet-600 transition-colors duration-200 font-medium text-sm bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 hover:border-violet-200"
           >
             <ArrowLeftOutlined />
-            Regresar al Panel
+            Regresar
           </Link>
-          <div className="w-px h-6 bg-slate-300" />
+          <div className="w-px h-8 bg-slate-200" />
           <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Nueva Orden de Bordado
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+              Capturar Nueva Orden
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Registro transaccional con catálogos Odoo
-            </p>
           </div>
         </div>
 
@@ -247,16 +263,16 @@ export default function NuevaOrdenPage() {
           type="primary"
           size="large"
           icon={<SendOutlined />}
-          loading={isSubmitting}
+          loading={submitOrderMutation.isPending}
           onClick={handleSubmitOrder}
           className="bg-gradient-to-r from-violet-600 to-indigo-600 border-none font-bold shadow-lg shadow-violet-500/10 rounded-xl px-6"
         >
-          Enviar Orden a Odoo
+          Guardar en Odoo
         </Button>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl w-full mx-auto px-6 mt-8">
+      <main className="max-w-7xl w-full mx-auto px-6 mt-12">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* ═══════ LEFT COLUMN: Customer + Cart ═══════ */}
           <div className="space-y-6">

@@ -1,310 +1,281 @@
+"use client";
+
 import React from "react";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { redirect } from "next/navigation";
 import Link from "next/link";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { notification, Button, Tag, Skeleton } from "antd";
+import { 
+  PlayCircleOutlined, 
+  CheckCircleOutlined, 
+  ClockCircleOutlined, 
+  SyncOutlined,
+  DashboardOutlined 
+} from "@ant-design/icons";
 import DashboardHeader from "@/components/DashboardHeader";
 
-export default async function DashboardPage() {
-  const session = await getServerSession(authOptions);
+// ─── Tipos ──────────────────────────────────────────────────────────────────
+interface ProductionOrder {
+  id: number;
+  name: string;
+  product_id: [number, string];
+  qty_producing: number;
+  state: string; // 'confirmed', 'progress', 'done'
+  date_planned_start: string;
+}
 
-  // Severe fallback redirection (in addition to standard middleware)
-  if (!session || !session.user) {
-    redirect("/login");
-  }
+// ─── API Fetchers ───────────────────────────────────────────────────────────
+const fetchProductionOrders = async (): Promise<ProductionOrder[]> => {
+  const res = await fetch("/api/odoo/production");
+  if (!res.ok) throw new Error("Error cargando órdenes de producción");
+  const data = await res.json();
+  return data.data;
+};
 
-  // Sample manufacturing state for embroidery business
-  const metrics = [
-    {
-      id: "metric-orders",
-      title: "Órdenes Pendientes",
-      value: "18",
-      description: "Por programar en máquinas",
-      icon: (
-        <svg
-          className="w-6 h-6 text-violet-600"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-          />
-        </svg>
-      ),
-      bg: "from-violet-50 to-transparent",
-      border: "hover:border-violet-200",
-    },
-    {
-      id: "metric-embroideries",
-      title: "Diseños Activos",
-      value: "6",
-      description: "Digitalización de ponchado",
-      icon: (
-        <svg
-          className="w-6 h-6 text-indigo-600"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-          />
-        </svg>
-      ),
-      bg: "from-indigo-50 to-transparent",
-      border: "hover:border-indigo-200",
-    },
-    {
-      id: "metric-efficiency",
-      title: "Eficiencia de Taller",
-      value: "95.8%",
-      description: "Bajo consumo y merma mínima",
-      icon: (
-        <svg
-          className="w-6 h-6 text-emerald-600"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-      ),
-      bg: "from-emerald-50 to-transparent",
-      border: "hover:border-emerald-200",
-    },
-    {
-      id: "metric-sat",
-      title: "SAT por Timbrar",
-      value: "4",
-      description: "Pendientes de facturación CFDI 4.0",
-      icon: (
-        <svg
-          className="w-6 h-6 text-amber-600"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
-      ),
-      bg: "from-amber-50 to-transparent",
-      border: "hover:border-amber-200",
-    },
-  ];
+const updateOrderState = async ({ orderId, action }: { orderId: number; action: string }) => {
+  const res = await fetch("/api/odoo/production", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderId, action }),
+  });
+  if (!res.ok) throw new Error("Error actualizando el estado de la orden");
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error);
+  return data;
+};
 
-  const machines = [
-    {
-      id: "m-1",
-      name: "Tajima TMEZ-SC1501 (Cabezal Único)",
-      status: "Embroidering",
-      design: "Logo Corporativo MasBordados - Espalda",
-      progress: 74,
-      speed: "850 RPM",
+// ─── Componente de Tarjeta (Kanban Card) ────────────────────────────────────
+const OrderCard = ({ 
+  order, 
+  onMove 
+}: { 
+  order: ProductionOrder; 
+  onMove: (id: number, action: string) => void 
+}) => {
+  return (
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 mb-3 flex flex-col gap-3">
+      <div className="flex justify-between items-start">
+        <span className="font-bold text-slate-800 text-sm bg-slate-100 px-2 py-1 rounded-md font-mono">
+          {order.name}
+        </span>
+        <Tag color="purple" className="m-0 font-bold border-none bg-violet-100 text-violet-700">
+          {order.qty_producing} pzs
+        </Tag>
+      </div>
+      
+      <p className="text-sm font-semibold text-slate-600 line-clamp-2">
+        {Array.isArray(order.product_id) ? order.product_id[1] : "Prenda sin diseño"}
+      </p>
+      
+      <div className="text-xs text-slate-400 font-mono">
+        Inicio: {new Date(order.date_planned_start).toLocaleString('es-MX', {
+          month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
+        })}
+      </div>
+
+      {/* Botones de Acción */}
+      <div className="mt-2 pt-3 border-t border-slate-100 flex gap-2">
+        {order.state === "confirmed" && (
+          <Button 
+            type="primary" 
+            size="small" 
+            icon={<PlayCircleOutlined />} 
+            className="w-full bg-indigo-600 shadow-sm rounded-lg text-xs font-semibold"
+            onClick={() => onMove(order.id, "start_production")}
+          >
+            Iniciar Prod.
+          </Button>
+        )}
+        {order.state === "progress" && (
+          <Button 
+            type="primary" 
+            size="small" 
+            icon={<CheckCircleOutlined />} 
+            className="w-full bg-emerald-600 shadow-sm rounded-lg text-xs font-semibold"
+            onClick={() => onMove(order.id, "mark_done")}
+          >
+            Marcar Terminado
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Dashboard Kanban Principal ─────────────────────────────────────────────
+export default function DashboardPage() {
+  const queryClient = useQueryClient();
+  const [api, contextHolder] = notification.useNotification();
+
+  const { data: orders = [], isLoading, isError } = useQuery({
+    queryKey: ["odoo", "production"],
+    queryFn: fetchProductionOrders,
+    refetchInterval: 15000, // Refrescar cada 15 segundos automáticamente
+  });
+
+  const mutation = useMutation({
+    mutationFn: updateOrderState,
+    onSuccess: () => {
+      api.success({
+        title: "Estado Actualizado",
+        description: "La orden se ha movido exitosamente en Odoo.",
+        placement: "bottomRight",
+      });
+      queryClient.invalidateQueries({ queryKey: ["odoo", "production"] });
     },
-    {
-      id: "m-2",
-      name: "Brother PR1055X (10 Agujas)",
-      status: "Embroidering",
-      design: "Insignia Deportiva Club - Frente",
-      progress: 42,
-      speed: "600 RPM",
+    onError: (error: any) => {
+      api.error({
+        title: "Error de Sincronización",
+        description: error.message || "No se pudo actualizar la orden.",
+        placement: "bottomRight",
+      });
     },
-    {
-      id: "m-3",
-      name: "Barudan BEXY-S1504C (4 Cabezales)",
-      status: "Idle",
-      design: "Ninguno",
-      progress: 0,
-      speed: "0 RPM",
-    },
-  ];
+  });
+
+  const handleMoveOrder = (orderId: number, action: string) => {
+    mutation.mutate({ orderId, action });
+  };
+
+  // Filtrar órdenes por estado
+  const pendingOrders = orders.filter(o => o.state === "confirmed");
+  const inProgressOrders = orders.filter(o => o.state === "progress");
+  const doneOrders = orders.filter(o => o.state === "done");
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col pb-12">
-      <DashboardHeader user={session.user} />
+    <div className="flex flex-col pb-12 flex-grow">
+      {contextHolder}
 
-      <main className="max-w-7xl w-full mx-auto px-6 mt-8 flex-grow">
-        <section className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <main className="max-w-[1400px] w-full mx-auto px-6 mt-8 flex-grow flex flex-col">
+        {/* Cabecera del Dashboard */}
+        <section className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 shrink-0">
           <div>
-            <h1
-              id="dashboard-heading"
-              className="text-3xl font-extrabold tracking-tight text-slate-900"
-            >
-              Panel de Control de Producción
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
+              <DashboardOutlined className="text-indigo-600" />
+              Tablero de Producción
             </h1>
             <p className="text-slate-500 text-sm mt-1">
-              Visualización en tiempo real de operaciones de costura, ponchados
-              y cumplimiento tributario.
+              Control de órdenes de bordado
             </p>
           </div>
+          
           <div className="flex gap-3">
             <Link
               href="/dashboard/nueva-orden"
-              id="action-new-order-btn"
               className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-all duration-150 active:scale-[0.98] shadow-lg shadow-violet-500/10"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M12 6v12m6-6H6"
-                />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v12m6-6H6" />
               </svg>
               Nueva Orden
             </Link>
-            <button
-              id="action-sat-btn"
-              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-950 font-semibold px-4 py-2.5 rounded-xl text-sm transition-all duration-150 active:scale-[0.98] shadow-sm"
+            <Link
+              href="/dashboard/customers"
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold px-4 py-2.5 rounded-xl text-sm transition-all shadow-sm"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                />
-              </svg>
-              Catálogos SAT
-            </button>
+              Clientes
+            </Link>
+            <Link
+              href="/dashboard/suppliers"
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold px-4 py-2.5 rounded-xl text-sm transition-all shadow-sm"
+            >
+              Proveedores
+            </Link>
           </div>
         </section>
 
-        {/* Metrics Grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {metrics.map((metric) => (
-            <article
-              key={metric.id}
-              className={`bg-white border border-slate-200 p-6 rounded-2xl flex flex-col justify-between transition-all duration-300 bg-gradient-to-br ${metric.bg} ${metric.border} shadow-sm`}
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    {metric.title}
-                  </p>
-                  <h3 className="text-3xl font-extrabold text-slate-900 mt-2">
-                    {metric.value}
-                  </h3>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 shadow-inner flex items-center justify-center">
-                  {metric.icon}
-                </div>
-              </div>
-              <p className="text-xs text-slate-600 mt-4 font-semibold">
-                {metric.description}
-              </p>
-            </article>
-          ))}
-        </section>
-
-        {/* Embroidery Machines Status */}
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">
-                Monitoreo de Máquinas
+        {/* Tablero Kanban */}
+        <section className="flex gap-6 overflow-x-auto pb-4 flex-grow">
+          {/* Columna: Pendiente */}
+          <div className="flex-1 min-w-[320px] bg-slate-100/50 border border-slate-200 rounded-2xl p-4 flex flex-col shadow-inner">
+            <div className="flex items-center justify-between mb-4 px-1">
+              <h2 className="font-bold text-slate-700 flex items-center gap-2">
+                <ClockCircleOutlined className="text-amber-500" />
+                Pendiente de Asignar
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Estado mecánico y progreso de hilado en tiempo real.
-              </p>
+              <Tag className="rounded-full bg-slate-200 text-slate-600 border-none font-bold">
+                {pendingOrders.length}
+              </Tag>
             </div>
-            <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sincronizado
-            </span>
+            <div className="flex-grow overflow-y-auto pr-1 custom-scrollbar">
+              {isLoading ? (
+                <Skeleton active paragraph={{ rows: 2 }} className="bg-white p-4 rounded-xl" />
+              ) : pendingOrders.length > 0 ? (
+                pendingOrders.map(order => (
+                  <OrderCard key={order.id} order={order} onMove={handleMoveOrder} />
+                ))
+              ) : (
+                <div className="h-24 flex items-center justify-center text-slate-400 text-sm font-medium border-2 border-dashed border-slate-200 rounded-xl">
+                  No hay órdenes pendientes
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider bg-slate-50/70">
-                  <th className="py-3 pl-4 rounded-tl-xl">Máquina</th>
-                  <th className="py-3">Estado</th>
-                  <th className="py-3">Diseño Cargado</th>
-                  <th className="py-3">Velocidad</th>
-                  <th className="py-3 pr-4 text-right rounded-tr-xl">Progreso</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {machines.map((machine) => (
-                  <tr key={machine.id} className="hover:bg-slate-50 transition-colors duration-150 group">
-                    <td className="py-4 pl-4 font-bold text-slate-800 group-hover:text-violet-700 transition-colors duration-150">
-                      {machine.name}
-                    </td>
-                    <td className="py-4">
-                      {machine.status === "Embroidering" ? (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-violet-100 text-violet-800 border border-violet-200 rounded-lg text-xs font-bold shadow-sm">
-                          Bordando
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold">
-                          Inactiva
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-4 text-slate-700 font-semibold">{machine.design}</td>
-                    <td className="py-4 text-slate-600 font-mono text-xs font-semibold">{machine.speed}</td>
-                    <td className="py-4 pr-4">
-                      <div className="flex items-center justify-end gap-3">
-                        {machine.status === "Embroidering" ? (
-                          <>
-                            <div className="w-24 bg-slate-200 h-2.5 rounded-full overflow-hidden shadow-inner hidden xs:block">
-                              <div
-                                className="bg-gradient-to-r from-violet-600 to-indigo-600 h-full rounded-full transition-all duration-500"
-                                style={{ width: `${machine.progress}%` }}
-                              />
-                            </div>
-                            <span className="font-extrabold text-slate-900 font-mono text-xs w-8 text-right">
-                              {machine.progress}%
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400 font-mono text-xs font-bold">
-                            —
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Columna: En Producción */}
+          <div className="flex-1 min-w-[320px] bg-slate-100/50 border border-slate-200 rounded-2xl p-4 flex flex-col shadow-inner">
+            <div className="flex items-center justify-between mb-4 px-1">
+              <h2 className="font-bold text-slate-700 flex items-center gap-2">
+                <SyncOutlined spin className="text-indigo-500" />
+                En Producción (Bordando)
+              </h2>
+              <Tag className="rounded-full bg-indigo-100 text-indigo-700 border-none font-bold">
+                {inProgressOrders.length}
+              </Tag>
+            </div>
+            <div className="flex-grow overflow-y-auto pr-1 custom-scrollbar">
+              {isLoading ? (
+                <Skeleton active paragraph={{ rows: 2 }} className="bg-white p-4 rounded-xl" />
+              ) : inProgressOrders.length > 0 ? (
+                inProgressOrders.map(order => (
+                  <OrderCard key={order.id} order={order} onMove={handleMoveOrder} />
+                ))
+              ) : (
+                <div className="h-24 flex items-center justify-center text-slate-400 text-sm font-medium border-2 border-dashed border-slate-200 rounded-xl">
+                  Sin máquinas activas
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Columna: Terminado */}
+          <div className="flex-1 min-w-[320px] bg-slate-100/50 border border-slate-200 rounded-2xl p-4 flex flex-col shadow-inner">
+            <div className="flex items-center justify-between mb-4 px-1">
+              <h2 className="font-bold text-slate-700 flex items-center gap-2">
+                <CheckCircleOutlined className="text-emerald-500" />
+                Terminado / Listo
+              </h2>
+              <Tag className="rounded-full bg-emerald-100 text-emerald-700 border-none font-bold">
+                {doneOrders.length}
+              </Tag>
+            </div>
+            <div className="flex-grow overflow-y-auto pr-1 custom-scrollbar">
+              {isLoading ? (
+                <Skeleton active paragraph={{ rows: 2 }} className="bg-white p-4 rounded-xl" />
+              ) : doneOrders.length > 0 ? (
+                doneOrders.map(order => (
+                  <OrderCard key={order.id} order={order} onMove={handleMoveOrder} />
+                ))
+              ) : (
+                <div className="h-24 flex items-center justify-center text-slate-400 text-sm font-medium border-2 border-dashed border-slate-200 rounded-xl">
+                  No hay órdenes terminadas
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </main>
+
+      <style dangerouslySetInnerHTML={{__html: `
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background-color: #cbd5e1;
+          border-radius: 20px;
+        }
+      `}} />
     </div>
   );
 }
