@@ -50,8 +50,34 @@ export async function POST(req: Request) {
       [orderData]
     );
 
-    // Opcionalmente, confirmamos la orden si el flujo del negocio lo dicta
-    // await odoo.executeKw("sale.order", "action_confirm", [[newOrderId]]);
+    // Procesar adjuntos (logos) si existen
+    for (const item of body.items) {
+      if (item.logoBase64) {
+        const attachmentData = {
+          name: item.logoName || `Logo_${item.designName}`,
+          type: "binary",
+          datas: item.logoBase64,
+          res_model: "sale.order",
+          res_id: newOrderId,
+        };
+        try {
+          await odoo.executeKw("ir.attachment", "create", [attachmentData]);
+          console.log(`📎 Adjunto creado exitosamente para la orden ${newOrderId}`);
+        } catch (attErr) {
+          console.error("Error al crear ir.attachment en Odoo:", attErr);
+          // Opcional: Podrías decidir si fallar la orden completa o solo registrar el error
+        }
+      }
+    }
+
+    // Auto-confirmar la orden de venta
+    await odoo.executeKw("sale.order", "action_confirm", [[newOrderId]]);
+    
+    // Asignar etiqueta inicial "Pendiente" (ID = 1) usando la sintaxis Many2many
+    await odoo.executeKw("sale.order", "write", [
+      [newOrderId], 
+      { tag_ids: [[6, 0, [1]]] }
+    ]);
 
     return NextResponse.json({ success: true, orderId: newOrderId });
   } catch (error: any) {

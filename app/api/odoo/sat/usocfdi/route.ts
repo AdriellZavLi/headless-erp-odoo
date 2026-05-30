@@ -32,7 +32,6 @@ export async function GET() {
         }
       );
 
-      // 3. Retornar con cabeceras de caché altamente óptimas
       return NextResponse.json(
         {
           success: true,
@@ -46,15 +45,24 @@ export async function GET() {
         }
       );
     } catch (odooError: any) {
-      console.error("❌ [BFF SAT USOCFDI] Error al consultar Odoo:", odooError.message);
-      return NextResponse.json(
-        {
-          success: false,
-          error: "ODOO_COMMUNICATION_ERROR",
-          message: "No se pudo obtener el catálogo de Odoo. Inténtelo más tarde.",
-        },
-        { status: 502 }
-      );
+      console.warn("⚠️ [BFF SAT USOCFDI] No se pudo obtener el catálogo de Odoo. Retornando fallback estático.", odooError.message);
+      
+      // Fallback estático en caso de que el módulo de contabilidad mexicana no esté instalado
+      const fallbackCatalog = [
+        { code: "G01", name: "Adquisición de mercancías" },
+        { code: "G02", name: "Devoluciones, descuentos o bonificaciones" },
+        { code: "G03", name: "Gastos en general" },
+        { code: "I01", name: "Construcciones" },
+        { code: "I02", name: "Mobiliario y equipo de oficina por inversiones" },
+        { code: "I03", name: "Equipo de transporte" },
+        { code: "I04", name: "Equipo de computo y accesorios" },
+        { code: "P01", name: "Por definir" },
+      ];
+
+      return NextResponse.json({
+        success: true,
+        catalog: fallbackCatalog,
+      });
     }
   } catch (error: any) {
     console.error("❌ [BFF SAT USOCFDI] Error crítico interno:", error);

@@ -17,10 +17,11 @@ import DashboardHeader from "@/components/DashboardHeader";
 interface ProductionOrder {
   id: number;
   name: string;
-  product_id: [number, string];
+  product_id?: [number, string];
   qty_producing: number;
   state: string; // 'confirmed', 'progress', 'done'
   date_planned_start: string;
+  tag_ids?: number[];
 }
 
 // ─── API Fetchers ───────────────────────────────────────────────────────────
@@ -54,9 +55,11 @@ const OrderCard = ({
   return (
     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 mb-3 flex flex-col gap-3">
       <div className="flex justify-between items-start">
-        <span className="font-bold text-slate-800 text-sm bg-slate-100 px-2 py-1 rounded-md font-mono">
-          {order.name}
-        </span>
+        <Link href={`/dashboard/orders/${order.id}`}>
+          <span className="font-bold text-violet-700 hover:text-violet-500 hover:underline cursor-pointer text-sm bg-violet-50 px-2 py-1 rounded-md font-mono transition-colors">
+            {order.name}
+          </span>
+        </Link>
         <Tag color="purple" className="m-0 font-bold border-none bg-violet-100 text-violet-700">
           {order.qty_producing} pzs
         </Tag>
@@ -135,10 +138,10 @@ export default function DashboardPage() {
     mutation.mutate({ orderId, action });
   };
 
-  // Filtrar órdenes por estado
-  const pendingOrders = orders.filter(o => o.state === "confirmed");
-  const inProgressOrders = orders.filter(o => o.state === "progress");
-  const doneOrders = orders.filter(o => o.state === "done");
+  // Filtrar órdenes por etiqueta (tag_ids)
+  const pendingOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(1));
+  const inProgressOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(2));
+  const doneOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(3));
 
   return (
     <div className="flex flex-col pb-12 flex-grow">
@@ -172,12 +175,6 @@ export default function DashboardPage() {
               className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold px-4 py-2.5 rounded-xl text-sm transition-all shadow-sm"
             >
               Clientes
-            </Link>
-            <Link
-              href="/dashboard/suppliers"
-              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold px-4 py-2.5 rounded-xl text-sm transition-all shadow-sm"
-            >
-              Proveedores
             </Link>
           </div>
         </section>

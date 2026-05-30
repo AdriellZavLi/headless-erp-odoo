@@ -11,11 +11,10 @@ export interface CustomerProfile {
 // ─── Perfil de Prenda (Definición del producto físico) ──────────────────────
 
 export interface GarmentProfile {
-  id: string;
-  garmentType: string;    // "Camisa de Vestir", "Polo", "Pantalón", etc.
-  color: string;          // "Negro", "Blanco", "Azul Marino", etc.
-  size: string;           // "S", "M", "L", "XL", "2XL", etc.
-  claveProdServ: string;  // Código SAT del producto (ej: "53101602")
+  id: string;             // ID de product.product (variante)
+  displayName: string;    // Nombre completo incluyendo atributos ej. "Playera (Azul, M)"
+  listPrice: number;      // Precio de lista
+  qtyAvailable: number;   // Cantidad disponible en stock
 }
 
 // ─── Ítem del Carrito de Orden (Trabajo a realizar sobre una prenda) ────────
@@ -29,6 +28,8 @@ export interface OrderCartItem {
   stitchCount?: number;     // Puntadas estimadas (opcional)
   threadColors?: string[];  // Colores de hilo en HSL o Hex
   notes?: string;           // Instrucciones del taller
+  logoBase64?: string;      // Archivo de logo convertido a base64
+  logoName?: string;        // Nombre del archivo de logo
 }
 
 // ─── Estado y Acciones del Store ────────────────────────────────────────────

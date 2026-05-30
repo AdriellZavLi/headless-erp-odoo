@@ -115,8 +115,18 @@ export default function CustomersPage() {
       key: "actions",
       render: () => (
         <div className="flex gap-2">
-          <Button type="text" icon={<EyeOutlined />} className="text-slate-500 hover:text-violet-600" />
-          <Button type="text" icon={<EditOutlined />} className="text-slate-500 hover:text-amber-600" />
+          <Button 
+            type="text" 
+            icon={<EyeOutlined />} 
+            className="text-slate-500 hover:text-violet-600" 
+            onClick={() => api.info({ message: "Aviso", description: "La vista detallada de clientes se gestiona desde el backend de Odoo." })}
+          />
+          <Button 
+            type="text" 
+            icon={<EditOutlined />} 
+            className="text-slate-500 hover:text-amber-600" 
+            onClick={() => api.info({ message: "Modificación Restringida", description: "Para mantener la integridad fiscal, las modificaciones de clientes deben realizarse directamente en Odoo." })}
+          />
         </div>
       ),
     },

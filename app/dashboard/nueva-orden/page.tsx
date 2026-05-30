@@ -16,6 +16,8 @@ import {
   Tag,
   Tooltip,
   Steps,
+  Upload,
+  message,
 } from "antd";
 import {
   UserOutlined,
@@ -26,6 +28,7 @@ import {
   SendOutlined,
   SkinOutlined,
   ScissorOutlined,
+  UploadOutlined,
 } from "@ant-design/icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -100,6 +103,9 @@ export default function NuevaOrdenPage() {
     null
   );
 
+  // Upload Logo State
+  const [logoFile, setLogoFile] = useState<{ base64: string; name: string } | null>(null);
+
   // Odoo Catalogs via TanStack Query
   const { data: customersCatalog, isLoading: loadingCustomers } = useCustomers();
   const { data: garmentsCatalog, isLoading: loadingGarments } = useGarments();
@@ -131,7 +137,7 @@ export default function NuevaOrdenPage() {
         setActiveGarment(selected);
         api.success({
           title: "Prenda Definida",
-          description: `${selected.garmentType} ${selected.color} (${selected.size}) seleccionada.`,
+          description: `${selected.displayName} seleccionada.`,
           placement: "topRight",
         });
       }
@@ -156,6 +162,35 @@ export default function NuevaOrdenPage() {
     },
   });
 
+  const handleLogoUpload = (file: File) => {
+    const isJpgOrPng = file.type === "image/jpeg" || file.type === "image/png" || file.type === "image/svg+xml";
+    if (!isJpgOrPng) {
+      message.error("Solo se permiten archivos JPG, PNG o SVG");
+      return false;
+    }
+    const isLt5M = file.size / 1024 / 1024 < 5;
+    if (!isLt5M) {
+      message.error("La imagen debe ser menor a 5MB");
+      return false;
+    }
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const base64Data = (reader.result as string).split(",")[1];
+      setLogoFile({
+        base64: base64Data,
+        name: file.name,
+      });
+      message.success("Logo cargado exitosamente");
+    };
+    reader.onerror = () => {
+      message.error("Error al leer el archivo");
+    };
+
+    return false; // Prevent default form POST behavior
+  };
+
   const onAddItem = useCallback(
     (data: ItemFormData) => {
       if (!activeGarment) return;
@@ -166,12 +201,15 @@ export default function NuevaOrdenPage() {
         designName: data.designName,
         usoCfdi: data.usoCfdi,
         notes: data.notes,
+        logoBase64: logoFile?.base64,
+        logoName: logoFile?.name,
       });
       resetItemForm();
       setActiveGarment(null); // Reset garment selection for next item
+      setLogoFile(null); // Reset logo
       api.success({
         title: "Prenda Agregada al Pedido",
-        description: `${data.quantity}x ${activeGarment.garmentType} ${activeGarment.color} (${activeGarment.size}) añadida(s) al carrito.`,
+        description: `${data.quantity}x ${activeGarment.displayName} añadida(s) al carrito.`,
         placement: "topRight",
       });
     },
@@ -383,13 +421,10 @@ export default function NuevaOrdenPage() {
                             #{index + 1}
                           </span>
                           <h4 className="font-bold text-slate-800 text-sm truncate">
-                            {item.garment.garmentType}
+                            {item.garment.displayName}
                           </h4>
-                          <Tag className="text-xs rounded-md border-slate-200 bg-white">
-                            {item.garment.color}
-                          </Tag>
                           <Tag className="text-xs rounded-md border-slate-200 bg-white font-mono">
-                            {item.garment.size}
+                            Stock: {item.garment.qtyAvailable}
                           </Tag>
                         </div>
                         <div className="flex items-center gap-3 mt-1.5">
@@ -403,7 +438,7 @@ export default function NuevaOrdenPage() {
                         </div>
                         <div className="flex items-center gap-2 mt-1.5">
                           <Tag className="text-xs font-mono rounded-md border-slate-200 bg-white">
-                            SAT: {item.garment.claveProdServ}
+                            Precio: ${item.garment.listPrice}
                           </Tag>
                           <Tag className="text-xs font-mono rounded-md border-slate-200 bg-white">
                             CFDI: {item.usoCfdi}
@@ -483,11 +518,10 @@ export default function NuevaOrdenPage() {
                   <SkinOutlined className="text-amber-600 text-lg" />
                   <div>
                     <p className="font-bold text-slate-800 text-sm">
-                      {activeGarment.garmentType} — {activeGarment.color}
+                      {activeGarment.displayName}
                     </p>
                     <p className="text-xs text-slate-500">
-                      Talla: {activeGarment.size} · SAT:{" "}
-                      {activeGarment.claveProdServ}
+                      Stock: {activeGarment.qtyAvailable} · Precio Base: ${activeGarment.listPrice}
                     </p>
                   </div>
                   <Tag color="green" className="ml-auto font-semibold rounded-lg">
@@ -503,13 +537,18 @@ export default function NuevaOrdenPage() {
                     size="large"
                     className="w-full"
                     loading={loadingGarments}
-                    placeholder="Seleccione tipo, color o talla..."
+                    placeholder="Buscar prenda (ej. Polo Negra M)"
                     showSearch
                     optionFilterProp="label"
+                    filterOption={(input, option) => {
+                      const searchTerms = input.toLowerCase().trim().split(' ');
+                      const text = String(option?.label ?? '').toLowerCase();
+                      return searchTerms.every(term => text.includes(term));
+                    }}
                     onChange={onSelectGarment}
                     options={(garmentsCatalog || []).map((g) => ({
                       value: g.id,
-                      label: `${g.garmentType} ${g.color} (${g.size}) - SAT: ${g.claveProdServ}`,
+                      label: g.displayName,
                     }))}
                   />
                 </div>
@@ -620,6 +659,25 @@ export default function NuevaOrdenPage() {
                         />
                       )}
                     />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={
+                      <span className="text-slate-700 font-semibold text-xs uppercase tracking-wider">
+                        Logo / Diseño Adjunto (Opcional)
+                      </span>
+                    }
+                  >
+                    <Upload
+                      name="logo"
+                      accept=".jpg,.jpeg,.png,.svg"
+                      showUploadList={false}
+                      beforeUpload={handleLogoUpload}
+                    >
+                      <Button icon={<UploadOutlined />} className="w-full h-10 rounded-xl">
+                        {logoFile ? `Cambiar: ${logoFile.name}` : "Subir archivo de logo (JPG, PNG, SVG)"}
+                      </Button>
+                    </Upload>
                   </Form.Item>
 
                   <Form.Item
