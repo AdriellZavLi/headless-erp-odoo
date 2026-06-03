@@ -78,3 +78,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+
+export async function PUT(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
+    const { id, name, rfc, email, zipCode } = body;
+
+    if (!id) {
+      return NextResponse.json({ success: false, error: "Missing customer ID" }, { status: 400 });
+    }
+
+    const partnerData = {
+      name: name,
+      vat: rfc,
+      email: email,
+      zip: zipCode,
+    };
+
+    // Update the record in Odoo
+    await odoo.executeKw(
+      "res.partner",
+      "write",
+      [[parseInt(id, 10)], partnerData]
+    );
+
+    return NextResponse.json({ success: true, id });
+  } catch (error: any) {
+    console.error("Error updating customer in Odoo:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}

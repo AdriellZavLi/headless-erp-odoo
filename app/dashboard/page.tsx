@@ -9,9 +9,11 @@ import {
   CheckCircleOutlined, 
   ClockCircleOutlined, 
   SyncOutlined,
-  DashboardOutlined 
+  DashboardOutlined,
+  ShoppingOutlined
 } from "@ant-design/icons";
 import DashboardHeader from "@/components/DashboardHeader";
+import DeliverModal from "@/components/DeliverModal";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 interface ProductionOrder {
@@ -47,10 +49,12 @@ const updateOrderState = async ({ orderId, action }: { orderId: number; action: 
 // ─── Componente de Tarjeta (Kanban Card) ────────────────────────────────────
 const OrderCard = ({ 
   order, 
-  onMove 
+  onMove,
+  onDeliver
 }: { 
   order: ProductionOrder; 
-  onMove: (id: number, action: string) => void 
+  onMove: (id: number, action: string) => void;
+  onDeliver?: (id: number) => void;
 }) => {
   return (
     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 mb-3 flex flex-col gap-3">
@@ -77,26 +81,37 @@ const OrderCard = ({
 
       {/* Botones de Acción */}
       <div className="mt-2 pt-3 border-t border-slate-100 flex gap-2">
-        {order.state === "confirmed" && (
+        {order.tag_ids?.includes(1) && (
           <Button 
             type="primary" 
             size="small" 
             icon={<PlayCircleOutlined />} 
-            className="w-full bg-indigo-600 shadow-sm rounded-lg text-xs font-semibold"
+            className="w-full bg-indigo-600 shadow-sm rounded-lg text-xs font-semibold hover:!bg-indigo-500"
             onClick={() => onMove(order.id, "start_production")}
           >
             Iniciar Prod.
           </Button>
         )}
-        {order.state === "progress" && (
+        {order.tag_ids?.includes(2) && (
           <Button 
             type="primary" 
             size="small" 
             icon={<CheckCircleOutlined />} 
-            className="w-full bg-emerald-600 shadow-sm rounded-lg text-xs font-semibold"
+            className="w-full bg-emerald-600 shadow-sm rounded-lg text-xs font-semibold hover:!bg-emerald-500"
             onClick={() => onMove(order.id, "mark_done")}
           >
             Marcar Terminado
+          </Button>
+        )}
+        {order.tag_ids?.includes(3) && onDeliver && (
+          <Button 
+            type="primary" 
+            size="small" 
+            icon={<ShoppingOutlined />} 
+            className="w-full bg-violet-600 shadow-sm rounded-lg text-xs font-semibold hover:!bg-violet-500"
+            onClick={() => onDeliver(order.id)}
+          >
+            Entregar y Facturar
           </Button>
         )}
       </div>
@@ -108,6 +123,8 @@ const OrderCard = ({
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const [api, contextHolder] = notification.useNotification();
+  const [deliverModalOpen, setDeliverModalOpen] = React.useState(false);
+  const [selectedOrderId, setSelectedOrderId] = React.useState<number | null>(null);
 
   const { data: orders = [], isLoading, isError } = useQuery({
     queryKey: ["odoo", "production"],
@@ -138,6 +155,11 @@ export default function DashboardPage() {
     mutation.mutate({ orderId, action });
   };
 
+  const handleOpenDeliver = (orderId: number) => {
+    setSelectedOrderId(orderId);
+    setDeliverModalOpen(true);
+  };
+
   // Filtrar órdenes por etiqueta (tag_ids)
   const pendingOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(1));
   const inProgressOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(2));
@@ -146,6 +168,11 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col pb-12 flex-grow">
       {contextHolder}
+      <DeliverModal 
+        isOpen={deliverModalOpen} 
+        orderId={selectedOrderId} 
+        onClose={() => setDeliverModalOpen(false)} 
+      />
 
       <main className="max-w-[1400px] w-full mx-auto px-6 mt-8 flex-grow flex flex-col">
         {/* Cabecera del Dashboard */}
@@ -249,7 +276,12 @@ export default function DashboardPage() {
                 <Skeleton active paragraph={{ rows: 2 }} className="bg-white p-4 rounded-xl" />
               ) : doneOrders.length > 0 ? (
                 doneOrders.map(order => (
-                  <OrderCard key={order.id} order={order} onMove={handleMoveOrder} />
+                  <OrderCard 
+                    key={order.id} 
+                    order={order} 
+                    onMove={handleMoveOrder} 
+                    onDeliver={handleOpenDeliver}
+                  />
                 ))
               ) : (
                 <div className="h-24 flex items-center justify-center text-slate-400 text-sm font-medium border-2 border-dashed border-slate-200 rounded-xl">

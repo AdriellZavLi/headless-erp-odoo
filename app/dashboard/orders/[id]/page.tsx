@@ -25,6 +25,8 @@ interface OrderDetail {
   order: {
     id: number;
     name: string;
+    partner_id?: [number, string];
+    amount_total?: number;
     state: string;
     date_order: string;
     tag_ids: number[];
@@ -34,7 +36,7 @@ interface OrderDetail {
     id: number;
     name: string;
     mimetype: string;
-    datas: string; // Base64
+    raw: string; // Base64
   }[];
 }
 
@@ -115,8 +117,20 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
         <Card className="border-slate-200 shadow-sm rounded-2xl flex flex-col" title={<span className="font-bold text-slate-800">Prendas a Bordar</span>}>
           <div className="space-y-4">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <span className="text-slate-500 font-medium">Cliente</span>
+              <span className="font-bold text-slate-800 text-base">
+                {order.partner_id ? order.partner_id[1] : 'No asignado'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <span className="text-slate-500 font-medium">Prendas Totales</span>
               <span className="font-bold text-violet-600 text-lg">{totalItems} pzs</span>
+            </div>
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <span className="text-slate-500 font-medium">Monto Total</span>
+              <span className="font-bold text-emerald-600 text-lg">
+                ${order.amount_total?.toFixed(2) || '0.00'}
+              </span>
             </div>
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <span className="text-slate-500 font-medium">Fecha de Solicitud</span>
@@ -132,11 +146,11 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
                   {order.lines.map(line => (
                     <div key={line.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex justify-between items-center">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-800 text-sm">
+                      <div className="flex flex-col min-w-0 flex-1 pr-4">
+                        <span className="font-bold text-slate-800 text-sm truncate">
                           {Array.isArray(line.product_id) ? line.product_id[1] : 'Producto'}
                         </span>
-                        <span className="text-xs text-slate-500 line-clamp-1" title={line.name}>
+                        <span className="text-xs text-slate-500 whitespace-pre-wrap break-words mt-1">
                           {line.name}
                         </span>
                       </div>
@@ -158,28 +172,38 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           {attachments.length > 0 ? (
             <div className="space-y-4">
               {attachments.map((att) => (
-                <div key={att.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center text-lg shadow-inner">
-                      <PictureOutlined />
+                <div key={att.id} className="flex flex-col gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-violet-100 text-violet-600 rounded-lg flex items-center justify-center text-lg shadow-inner">
+                        <PictureOutlined />
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm truncate max-w-[150px]">{att.name}</p>
+                        <p className="text-xs text-slate-500 uppercase">{att.mimetype}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-slate-800 text-sm truncate max-w-[150px]">{att.name}</p>
-                      <p className="text-xs text-slate-500 uppercase">{att.mimetype}</p>
-                    </div>
-                  </div>
-                  <a 
-                    href={`data:${att.mimetype};base64,${att.datas}`} 
-                    download={att.name}
-                  >
-                    <Button 
-                      type="primary" 
-                      icon={<DownloadOutlined />} 
-                      className="bg-violet-600 hover:!bg-violet-500 shadow-md rounded-lg font-semibold"
+                    <a 
+                      href={`data:${att.mimetype || 'image/png'};base64,${att.raw}`} 
+                      download={att.name}
                     >
-                      Descargar
-                    </Button>
-                  </a>
+                      <Button 
+                        type="primary" 
+                        icon={<DownloadOutlined />} 
+                        className="bg-violet-600 hover:!bg-violet-500 shadow-md rounded-lg font-semibold"
+                      >
+                        Descargar
+                      </Button>
+                    </a>
+                  </div>
+                  {/* Image Preview */}
+                  <div className="w-full flex justify-center bg-white border border-slate-100 rounded-lg p-2">
+                    <img 
+                      src={`data:${att.mimetype || 'image/png'};base64,${att.raw}`} 
+                      alt="Logotipo adjunto" 
+                      className="w-48 h-48 object-contain rounded" 
+                    />
+                  </div>
                 </div>
               ))}
             </div>

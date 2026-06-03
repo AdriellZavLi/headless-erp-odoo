@@ -63,33 +63,55 @@ export class OdooClient {
       id: Math.floor(Math.random() * 1000) + 1,
     };
 
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-        // Timeout de 10 segundos
-        signal: AbortSignal.timeout(10000),
-      });
+    let retries = 0;
+    const maxRetries = 3;
 
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
+    while (retries <= maxRetries) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          // Timeout de 10 segundos
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!response.ok) {
+          if (response.status === 429 && retries < maxRetries) {
+            retries++;
+            const delay = Math.pow(2, retries) * 1000;
+            console.warn(`⏳ [OdooClient] 429 Too Many Requests. Retrying in ${delay}ms... (Attempt ${retries}/${maxRetries})`);
+            await new Promise(res => setTimeout(res, delay));
+            continue;
+          }
+          throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        if (data.error) {
+          console.error("❌ [OdooClient] Error Odoo JSON-RPC:", data.error);
+          throw new Error(data.error.data?.message || data.error.message || "Error interno de Odoo");
+        }
+
+        return data.result as T;
+      } catch (error: any) {
+        if (error.name === 'AbortError' || error.message.includes('429')) {
+           if (retries < maxRetries) {
+              retries++;
+              const delay = Math.pow(2, retries) * 1000;
+              await new Promise(res => setTimeout(res, delay));
+              continue;
+           }
+        }
+        console.error(`❌ [OdooClient] Error al conectar con Odoo (${service}/${method}):`, error.message);
+        throw error;
       }
-
-      const data = await response.json();
-
-      if (data.error) {
-        console.error("❌ [OdooClient] Error Odoo JSON-RPC:", data.error);
-        throw new Error(data.error.data?.message || data.error.message || "Error interno de Odoo");
-      }
-
-      return data.result as T;
-    } catch (error: any) {
-      console.error(`❌ [OdooClient] Error al conectar con Odoo (${service}/${method}):`, error.message);
-      throw error;
     }
+    
+    throw new Error("Max retries reached");
   }
 
   /**

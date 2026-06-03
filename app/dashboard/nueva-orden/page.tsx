@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -18,6 +18,8 @@ import {
   Steps,
   Upload,
   message,
+  DatePicker,
+  Modal,
 } from "antd";
 import {
   UserOutlined,
@@ -28,6 +30,7 @@ import {
   SendOutlined,
   SkinOutlined,
   ScissorOutlined,
+  ClockCircleOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -88,11 +91,39 @@ function useSatUsoCfdi() {
   });
 }
 
+function usePaymentTerms() {
+  return useQuery({
+    queryKey: ["odoo", "payment-terms"],
+    queryFn: async () => {
+      const res = await fetch("/api/odoo/payment-terms");
+      if (!res.ok) throw new Error("Error al cargar términos de pago");
+      const data = await res.json();
+      return data.catalog as { id: number; name: string }[];
+    },
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
+function useSatPaymentMethods() {
+  return useQuery({
+    queryKey: ["odoo", "sat-payment-methods"],
+    queryFn: async () => {
+      const res = await fetch("/api/odoo/sat/payment_methods");
+      if (!res.ok) throw new Error("Error al cargar formas de pago SAT");
+      const data = await res.json();
+      return data.catalog as { id: number; name: string }[];
+    },
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function NuevaOrdenPage() {
   const router = useRouter();
   const [api, contextHolder] = notification.useNotification();
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const [modal, modalContextHolder] = Modal.useModal();
 
   // Zustand global store
   const { customer, items, setCustomer, addItem, removeItem, clearCart } =
@@ -106,10 +137,18 @@ export default function NuevaOrdenPage() {
   // Upload Logo State
   const [logoFile, setLogoFile] = useState<{ base64: string; name: string } | null>(null);
 
+  // Additional Order Fields
+  const [commitmentDate, setCommitmentDate] = useState<string | null>(null);
+  const [paymentTermId, setPaymentTermId] = useState<number | null>(null);
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
+  const [paymentPolicy, setPaymentPolicy] = useState<string | null>(null);
+
   // Odoo Catalogs via TanStack Query
   const { data: customersCatalog, isLoading: loadingCustomers } = useCustomers();
   const { data: garmentsCatalog, isLoading: loadingGarments } = useGarments();
+  const { data: paymentTermsCatalog, isLoading: loadingPaymentTerms } = usePaymentTerms();
   const { data: usoCfdiCatalog, isLoading: loadingCfdi } = useSatUsoCfdi();
+  const { data: paymentMethodsCatalog, isLoading: loadingPaymentMethods } = useSatPaymentMethods();
 
   // ─── Customer Selection ──────────────────────────────────────────────────
 
@@ -151,6 +190,7 @@ export default function NuevaOrdenPage() {
     control: itemControl,
     handleSubmit: handleItemSubmit,
     reset: resetItemForm,
+    setValue: setItemValue,
     formState: { errors: itemErrors },
   } = useForm<ItemFormData>({
     resolver: zodResolver(itemSchema),
@@ -162,31 +202,42 @@ export default function NuevaOrdenPage() {
     },
   });
 
-  const handleLogoUpload = (file: File) => {
+  useEffect(() => {
+    if (customer?.rfc === "XAXX010101000") {
+      setItemValue("usoCfdi", "S01");
+    }
+  }, [customer, setItemValue]);
+
+  const getBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+
+  const handleLogoUpload = async (file: File) => {
     const isJpgOrPng = file.type === "image/jpeg" || file.type === "image/png" || file.type === "image/svg+xml";
     if (!isJpgOrPng) {
-      message.error("Solo se permiten archivos JPG, PNG o SVG");
+      messageApi.error("Solo se permiten archivos JPG, PNG o SVG");
       return false;
     }
     const isLt5M = file.size / 1024 / 1024 < 5;
     if (!isLt5M) {
-      message.error("La imagen debe ser menor a 5MB");
+      messageApi.error("La imagen debe ser menor a 5MB");
       return false;
     }
 
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const base64Data = (reader.result as string).split(",")[1];
+    try {
+      const base64String = await getBase64(file);
       setLogoFile({
-        base64: base64Data,
+        base64: base64String, // Guardamos el string largo (data:image/...)
         name: file.name,
       });
-      message.success("Logo cargado exitosamente");
-    };
-    reader.onerror = () => {
-      message.error("Error al leer el archivo");
-    };
+      messageApi.success("Logo convertido y cargado exitosamente");
+    } catch (error) {
+      messageApi.error("Error al convertir el archivo a Base64");
+    }
 
     return false; // Prevent default form POST behavior
   };
@@ -195,15 +246,20 @@ export default function NuevaOrdenPage() {
     (data: ItemFormData) => {
       if (!activeGarment) return;
 
-      addItem({
+      const newItem: any = {
         garment: activeGarment,
         quantity: data.quantity,
         designName: data.designName,
         usoCfdi: data.usoCfdi,
         notes: data.notes,
-        logoBase64: logoFile?.base64,
-        logoName: logoFile?.name,
-      });
+      };
+
+      if (logoFile && logoFile.base64 && logoFile.base64.trim() !== "") {
+        newItem.logoBase64 = logoFile.base64;
+        newItem.logoName = logoFile.name;
+      }
+
+      addItem(newItem);
       resetItemForm();
       setActiveGarment(null); // Reset garment selection for next item
       setLogoFile(null); // Reset logo
@@ -213,13 +269,13 @@ export default function NuevaOrdenPage() {
         placement: "topRight",
       });
     },
-    [activeGarment, addItem, resetItemForm, api]
+    [activeGarment, addItem, resetItemForm, api, logoFile]
   );
 
   // ─── Submit Order ───────────────────────────────────────────────────────
 
   const submitOrderMutation = useMutation({
-    mutationFn: async (payload: { customer: any, items: any[] }) => {
+    mutationFn: async (payload: { customer: any, items: any[], commitmentDate: string | null, paymentTermId: number | null, paymentMethodId: number | null, paymentPolicy: string | null }) => {
       const res = await fetch("/api/odoo/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -263,14 +319,37 @@ export default function NuevaOrdenPage() {
     if (items.length === 0) {
       api.warning({
         title: "Carrito Vacío",
-        description:
-          "Agregue al menos una prenda al carrito antes de enviar la orden.",
+        description: "Agregue al menos una prenda al carrito antes de enviar la orden.",
         placement: "topRight",
       });
       return;
     }
 
-    submitOrderMutation.mutate({ customer, items });
+    const hasItemsWithoutStock = items.some(item => item.garment.qtyAvailable <= 0);
+
+    const proceedWithOrder = () => {
+      submitOrderMutation.mutate({
+        customer,
+        items,
+        commitmentDate,
+        paymentTermId,
+        paymentMethodId,
+        paymentPolicy
+      });
+    };
+
+    if (hasItemsWithoutStock) {
+      modal.confirm({
+        title: "Inventario Insuficiente",
+        content: "Algunas prendas de esta orden no tienen existencias en bodega. ¿Deseas confirmar la orden bajo pedido?",
+        okText: "Proceder de todos modos",
+        cancelText: "Cancelar",
+        okButtonProps: { danger: true },
+        onOk: proceedWithOrder,
+      });
+    } else {
+      proceedWithOrder();
+    }
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────
@@ -278,6 +357,8 @@ export default function NuevaOrdenPage() {
   return (
     <div className="p-8 max-w-[1400px] mx-auto w-full space-y-8 flex-grow">
       {contextHolder}
+      {messageContextHolder}
+      {modalContextHolder}
 
       {/* Header Bar */}
       <header className="w-full bg-white rounded-2xl p-6 flex items-center justify-between border border-slate-200 shadow-sm">
@@ -366,15 +447,15 @@ export default function NuevaOrdenPage() {
                     </p>
                   </div>
                   <div className="flex justify-end pt-2">
-                     <Button 
-                       size="small" 
-                       danger 
-                       type="text" 
-                       onClick={() => setCustomer(null)}
-                       className="text-xs"
-                     >
-                        Desvincular
-                     </Button>
+                    <Button
+                      size="small"
+                      danger
+                      type="text"
+                      onClick={() => setCustomer(null)}
+                      className="text-xs"
+                    >
+                      Desvincular
+                    </Button>
                   </div>
                 </div>
               )}
@@ -464,6 +545,80 @@ export default function NuevaOrdenPage() {
                 </div>
               )}
             </Card>
+
+            {/* Delivery and Payment Conditions */}
+            <Card
+              title={
+                <span className="flex items-center gap-2 text-slate-800 font-bold">
+                  <ClockCircleOutlined className="text-amber-500" />
+                  Condiciones Comerciales
+                </span>
+              }
+              className="border-slate-200 rounded-2xl shadow-sm"
+            >
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-700 font-semibold text-xs uppercase tracking-wider mb-2">
+                    Fecha Prometida
+                  </label>
+                  <DatePicker
+                    size="large"
+                    className="w-full rounded-xl"
+                    onChange={(_, dateString) => setCommitmentDate(dateString as string)}
+                    placeholder="Seleccione fecha"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold text-xs uppercase tracking-wider mb-2">
+                    Términos de Pago
+                  </label>
+                  <Select
+                    size="large"
+                    className="w-full"
+                    loading={loadingPaymentTerms}
+                    placeholder="Seleccione plazo..."
+                    options={(paymentTermsCatalog || []).map((pt) => ({
+                      value: pt.id,
+                      label: pt.name,
+                    }))}
+                    onChange={(val) => setPaymentTermId(val)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold text-xs uppercase tracking-wider mb-2">
+                    Forma de Pago (SAT)
+                  </label>
+                  <Select
+                    size="large"
+                    className="w-full"
+                    loading={loadingPaymentMethods}
+                    placeholder="Seleccione forma de pago..."
+                    showSearch
+                    optionFilterProp="label"
+                    options={(paymentMethodsCatalog || []).map((pm) => ({
+                      value: pm.id,
+                      label: pm.name,
+                    }))}
+                    onChange={(val) => setPaymentMethodId(val)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold text-xs uppercase tracking-wider mb-2">
+                    Política de Pago (CFDI)
+                  </label>
+                  <Select
+                    size="large"
+                    className="w-full"
+                    placeholder="Seleccione política..."
+                    options={[
+                      { value: "PUE", label: "PUE (Pago en una sola exhibición)" },
+                      { value: "PPD", label: "PPD (Pago en parcialidades o diferido)" },
+                    ]}
+                    onChange={(val) => setPaymentPolicy(val)}
+                  />
+                </div>
+              </div>
+            </Card>
           </div>
 
           {/* ═══════ RIGHT COLUMN: Garment + Order Details ═══════ */}
@@ -493,11 +648,10 @@ export default function NuevaOrdenPage() {
                   Paso 1: Seleccionar Prenda Base
                 </span>
               }
-              className={`border-slate-200 rounded-2xl shadow-sm transition-all duration-300 ${
-                activeGarment
+              className={`border-slate-200 rounded-2xl shadow-sm transition-all duration-300 ${activeGarment
                   ? "opacity-50 pointer-events-none"
                   : ""
-              }`}
+                }`}
               extra={
                 activeGarment && (
                   <Button
@@ -563,11 +717,10 @@ export default function NuevaOrdenPage() {
                   Paso 2: Detalles del Trabajo a Realizar
                 </span>
               }
-              className={`border-slate-200 rounded-2xl shadow-sm transition-all duration-300 ${
-                !activeGarment
+              className={`border-slate-200 rounded-2xl shadow-sm transition-all duration-300 ${!activeGarment
                   ? "opacity-50 pointer-events-none"
                   : ""
-              }`}
+                }`}
             >
               {!activeGarment ? (
                 <div className="text-center py-6">
@@ -646,6 +799,7 @@ export default function NuevaOrdenPage() {
                       render={({ field }) => (
                         <Select
                           {...field}
+                          disabled={customer?.rfc === "XAXX010101000"}
                           size="large"
                           className="w-full"
                           loading={loadingCfdi}

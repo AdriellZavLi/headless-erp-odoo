@@ -31,13 +31,14 @@ const fetchCustomers = async (): Promise<CustomerProfile[]> => {
   return data.catalog;
 };
 
-const createCustomer = async (data: CustomerFormData) => {
+const saveCustomer = async (data: CustomerFormData & { id?: string }) => {
+  const isEditing = !!data.id;
   const res = await fetch("/api/odoo/customers", {
-    method: "POST",
+    method: isEditing ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Error al crear el cliente");
+  if (!res.ok) throw new Error(`Error al ${isEditing ? "actualizar" : "crear"} el cliente`);
   const result = await res.json();
   if (!result.success) throw new Error(result.error);
   return result;
@@ -48,6 +49,7 @@ export default function CustomersPage() {
   const queryClient = useQueryClient();
   const [api, contextHolder] = notification.useNotification();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
 
   const { data: customers, isLoading, isError } = useQuery({
     queryKey: ["odoo", "customers"],
@@ -55,20 +57,19 @@ export default function CustomersPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: createCustomer,
+    mutationFn: saveCustomer,
     onSuccess: () => {
       api.success({
-        title: "Cliente Creado",
-        description: "El cliente ha sido guardado exitosamente en Odoo.",
+        title: editingCustomerId ? "Cliente Actualizado" : "Cliente Creado",
+        description: `El cliente ha sido ${editingCustomerId ? "actualizado" : "guardado"} exitosamente en Odoo.`,
       });
       queryClient.invalidateQueries({ queryKey: ["odoo", "customers"] });
-      setIsModalOpen(false);
-      reset();
+      closeModal();
     },
     onError: (error: any) => {
       api.error({
         title: "Error",
-        description: error.message || "No se pudo crear el cliente.",
+        description: error.message || "No se pudo guardar el cliente.",
       });
     },
   });
@@ -83,8 +84,31 @@ export default function CustomersPage() {
     defaultValues: { name: "", rfc: "", email: "", zipCode: "" },
   });
 
+  const openNewCustomerModal = () => {
+    setEditingCustomerId(null);
+    reset({ name: "", rfc: "", email: "", zipCode: "" });
+    setIsModalOpen(true);
+  };
+
+  const openEditCustomerModal = (customer: CustomerProfile) => {
+    setEditingCustomerId(customer.id);
+    reset({
+      name: customer.name,
+      rfc: customer.rfc,
+      email: customer.email,
+      zipCode: customer.zipCode,
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingCustomerId(null);
+    reset();
+  };
+
   const onSubmit = (data: CustomerFormData) => {
-    mutation.mutate(data);
+    mutation.mutate(editingCustomerId ? { ...data, id: editingCustomerId } : data);
   };
 
   const columns = [
@@ -113,19 +137,13 @@ export default function CustomersPage() {
     {
       title: "Acciones",
       key: "actions",
-      render: () => (
+      render: (_: any, record: CustomerProfile) => (
         <div className="flex gap-2">
-          <Button 
-            type="text" 
-            icon={<EyeOutlined />} 
-            className="text-slate-500 hover:text-violet-600" 
-            onClick={() => api.info({ message: "Aviso", description: "La vista detallada de clientes se gestiona desde el backend de Odoo." })}
-          />
           <Button 
             type="text" 
             icon={<EditOutlined />} 
             className="text-slate-500 hover:text-amber-600" 
-            onClick={() => api.info({ message: "Modificación Restringida", description: "Para mantener la integridad fiscal, las modificaciones de clientes deben realizarse directamente en Odoo." })}
+            onClick={() => openEditCustomerModal(record)}
           />
         </div>
       ),
@@ -156,7 +174,7 @@ export default function CustomersPage() {
           icon={<PlusOutlined />} 
           size="large"
           className="bg-violet-600 shadow-md shadow-violet-200 rounded-xl px-6 font-bold"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openNewCustomerModal}
         >
           Nuevo Cliente
         </Button>
@@ -173,19 +191,16 @@ export default function CustomersPage() {
         />
       </div>
 
-      {/* Modal Crear Cliente */}
+      {/* Modal Crear/Editar Cliente */}
       <Modal
         title={
           <div className="flex items-center gap-2 text-lg font-bold text-slate-800 pb-2 border-b border-slate-100">
-            <UserOutlined className="text-violet-600" />
-            Registrar Nuevo Cliente
+            {editingCustomerId ? <EditOutlined className="text-amber-600" /> : <UserOutlined className="text-violet-600" />}
+            {editingCustomerId ? "Editar Cliente" : "Registrar Nuevo Cliente"}
           </div>
         }
         open={isModalOpen}
-        onCancel={() => {
-          setIsModalOpen(false);
-          reset();
-        }}
+        onCancel={closeModal}
         footer={null}
         destroyOnHidden
       >
@@ -249,7 +264,7 @@ export default function CustomersPage() {
           </Form.Item>
 
           <div className="flex justify-end gap-3 mt-8">
-            <Button size="large" className="rounded-xl" onClick={() => setIsModalOpen(false)}>
+            <Button size="large" className="rounded-xl" onClick={closeModal}>
               Cancelar
             </Button>
             <Button 
@@ -257,9 +272,9 @@ export default function CustomersPage() {
               htmlType="submit" 
               size="large" 
               loading={mutation.isPending}
-              className="bg-violet-600 shadow-md shadow-violet-200 rounded-xl"
+              className={`${editingCustomerId ? "bg-amber-600 shadow-amber-200" : "bg-violet-600 shadow-violet-200"} shadow-md rounded-xl`}
             >
-              Guardar en Odoo
+              {editingCustomerId ? "Actualizar en Odoo" : "Guardar en Odoo"}
             </Button>
           </div>
         </Form>

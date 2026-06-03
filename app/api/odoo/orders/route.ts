@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body: { customer: CustomerProfile; items: OrderCartItem[] } = await req.json();
+    const body: { customer: CustomerProfile; items: OrderCartItem[]; commitmentDate?: string | null; paymentTermId?: number | null; paymentMethodId?: number | null; paymentPolicy?: string | null } = await req.json();
     
     if (!body.customer || !body.items || body.items.length === 0) {
       return NextResponse.json({ success: false, error: "Faltan datos del cliente o prendas" }, { status: 400 });
@@ -34,13 +34,29 @@ export async function POST(req: Request) {
     });
 
     // Preparar la cabecera de la orden
-    const orderData = {
+    const orderData: any = {
       partner_id: parseInt(body.customer.id, 10),
       order_line: orderLines,
       // Si tenemos un campo personalizado para Uso CFDI a nivel orden en Odoo:
       // l10n_mx_edi_usage: body.items[0].usoCfdi,
       note: "Orden generada desde portal Headless ERP",
     };
+
+    if (body.commitmentDate) {
+      orderData.commitment_date = body.commitmentDate;
+    }
+    
+    if (body.paymentTermId) {
+      orderData.payment_term_id = body.paymentTermId;
+    }
+
+    if (body.paymentMethodId) {
+      orderData.l10n_mx_edi_payment_method_id = body.paymentMethodId;
+    }
+
+    if (body.paymentPolicy) {
+      orderData.l10n_mx_edi_payment_policy = body.paymentPolicy;
+    }
 
     // Crear la orden de venta (sale.order) en Odoo
     // Esto creará automáticamente las sale.order.line asociadas
@@ -52,20 +68,23 @@ export async function POST(req: Request) {
 
     // Procesar adjuntos (logos) si existen
     for (const item of body.items) {
-      if (item.logoBase64) {
-        const attachmentData = {
-          name: item.logoName || `Logo_${item.designName}`,
-          type: "binary",
-          datas: item.logoBase64,
-          res_model: "sale.order",
-          res_id: newOrderId,
-        };
-        try {
-          await odoo.executeKw("ir.attachment", "create", [attachmentData]);
-          console.log(`📎 Adjunto creado exitosamente para la orden ${newOrderId}`);
-        } catch (attErr) {
-          console.error("Error al crear ir.attachment en Odoo:", attErr);
-          // Opcional: Podrías decidir si fallar la orden completa o solo registrar el error
+      if (item.logoBase64 && typeof item.logoBase64 === 'string' && item.logoBase64.trim() !== '') {
+        const cleanBase64 = item.logoBase64.includes(',') ? item.logoBase64.split(',')[1] : item.logoBase64;
+        
+        if (cleanBase64.trim() !== '') {
+          const attachmentData = {
+            name: item.logoName || `logo_orden_${newOrderId}.png`,
+            type: "binary",
+            raw: cleanBase64,
+            res_model: "sale.order",
+            res_id: newOrderId,
+          };
+          try {
+            await odoo.executeKw("ir.attachment", "create", [[attachmentData]]);
+            console.log(`📎 Adjunto creado exitosamente para la orden ${newOrderId}`);
+          } catch (attErr) {
+            console.error("Error al crear ir.attachment en Odoo:", attErr);
+          }
         }
       }
     }

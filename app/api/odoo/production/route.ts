@@ -31,21 +31,24 @@ export async function GET() {
     }, []);
 
     // 3. Consultar las líneas para obtener las cantidades de cada prenda
-    let linesMap: Record<number, number> = {};
+    let linesMap: Record<number, { qty: number; name: string }> = {};
     if (allLineIds.length > 0) {
       const lines = await odoo.executeKw<any[]>(
         "sale.order.line",
         "search_read",
         [[["id", "in", allLineIds]]],
         {
-          fields: ["id", "product_uom_qty"],
+          fields: ["id", "product_uom_qty", "name"],
         }
       );
       
       const isMockResponse = !Array.isArray(lines) || (lines.length > 0 && lines[0].success);
       if (!isMockResponse && Array.isArray(lines)) {
         lines.forEach(line => {
-          linesMap[line.id] = line.product_uom_qty || 0;
+          linesMap[line.id] = {
+            qty: line.product_uom_qty || 0,
+            name: line.name || "Prenda sin diseño"
+          };
         });
       }
     }
@@ -54,14 +57,18 @@ export async function GET() {
     // Reemplazamos qty_producing calculando la suma de las líneas
     const formattedRecords = records.map(order => {
       let totalQty = 0;
-      if (order.order_line && Array.isArray(order.order_line)) {
-        totalQty = order.order_line.reduce((sum: number, lineId: number) => sum + (linesMap[lineId] || 0), 0);
+      let firstName = "Prenda sin diseño";
+      if (order.order_line && Array.isArray(order.order_line) && order.order_line.length > 0) {
+        totalQty = order.order_line.reduce((sum: number, lineId: number) => sum + (linesMap[lineId]?.qty || 0), 0);
+        firstName = linesMap[order.order_line[0]]?.name || firstName;
       }
       
-      // Mapeamos los campos para que el Frontend no sufra cambios drásticos
+      // Limpiar el nombre si viene con "[BORDADO]"
+      const cleanName = firstName.replace(/^\[.*?\]\s*/, '').split(' - Notas:')[0].trim();
       return {
         id: order.id,
         name: order.name,
+        product_id: [0, cleanName],
         qty_producing: totalQty,
         state: order.state,
         date_planned_start: order.date_order,
