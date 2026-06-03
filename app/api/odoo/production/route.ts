@@ -14,9 +14,9 @@ export async function GET() {
     const records = await odoo.executeKw<any[]>(
       "sale.order",
       "search_read",
-      [[["state", "in", ["sale", "done"]]]],
+      [[["state", "in", ["draft", "sent", "sale", "done"]]]],
       {
-        fields: ["id", "name", "order_line", "state", "date_order", "tag_ids"],
+        fields: ["id", "name", "partner_id", "order_line", "state", "date_order", "tag_ids"],
         limit: 100,
         order: "date_order asc",
       }
@@ -101,6 +101,12 @@ export async function PUT(req: Request) {
     let targetTagId = null;
     if (action === "start_production") {
       targetTagId = 2; // En Producción
+      // MISIÓN 3: Al iniciar producción, confirmar la orden para que Odoo genere stock.picking
+      try {
+        await odoo.executeKw("sale.order", "action_confirm", [[orderId]]);
+      } catch (e) {
+        console.error("No se pudo auto-confirmar la orden (puede que ya esté confirmada):", e);
+      }
     } else if (action === "mark_done") {
       targetTagId = 3; // Terminado
     } else if (action === "mark_pending") {

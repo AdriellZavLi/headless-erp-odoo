@@ -27,7 +27,8 @@ export interface OrderCartItem {
   usoCfdi: string;          // Código SAT Uso CFDI (ej: "G03")
   stitchCount?: number;     // Puntadas estimadas (opcional)
   threadColors?: string[];  // Colores de hilo en HSL o Hex
-  notes?: string;           // Instrucciones del taller
+  ubicacionLogo?: string;   // Ubicación del logo en la prenda
+  instruccionesBordado?: string; // Instrucciones del taller
   logoBase64?: string;      // Archivo de logo convertido a base64
   logoName?: string;        // Nombre del archivo de logo
 }

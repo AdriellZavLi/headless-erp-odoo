@@ -25,7 +25,7 @@ export async function GET(
       "search_read",
       [[["id", "=", orderId]]],
       {
-        fields: ["id", "name", "partner_id", "amount_total", "order_line", "state", "date_order", "tag_ids", "l10n_mx_edi_payment_method_id", "l10n_mx_edi_payment_policy"],
+        fields: ["id", "name", "partner_id", "amount_total", "order_line", "state", "date_order", "tag_ids", "l10n_mx_edi_payment_method_id", "l10n_mx_edi_payment_policy", "x_cajero", "commitment_date"],
         limit: 1,
       }
     );
@@ -35,6 +35,15 @@ export async function GET(
     }
 
     const order = orders[0];
+
+    // 1.2 Obtener link del portal (para PDF de la cotización)
+    try {
+      const portalUrl = await odoo.executeKw<string>("sale.order", "get_portal_url", [[order.id]]);
+      order.pdf_url = `https://axizstudios1.odoo.com${portalUrl}&report_type=pdf`;
+    } catch (e) {
+      console.warn("No se pudo obtener el portal_url para la orden", order.id);
+      order.pdf_url = null;
+    }
 
     // 1.5 Obtener RFC y Email del cliente
     if (order.partner_id && order.partner_id[0]) {
@@ -56,7 +65,7 @@ export async function GET(
         "search_read",
         [[["id", "in", order.order_line]]],
         {
-          fields: ["id", "name", "product_id", "product_uom_qty", "price_unit"],
+          fields: ["id", "name", "product_id", "product_uom_qty", "price_unit", "x_ubicacion_logo", "x_instrucciones_bordado"],
         }
       );
       if (Array.isArray(fetchedLines)) {

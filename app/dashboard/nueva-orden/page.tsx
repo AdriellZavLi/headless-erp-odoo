@@ -45,7 +45,8 @@ const itemSchema = z.object({
   quantity: z.number().min(1, "La cantidad mínima es 1"),
   designName: z.string().min(2, "Nombre del diseño de ponchado requerido"),
   usoCfdi: z.string().min(1, "Seleccione un uso de CFDI"),
-  notes: z.string().optional(),
+  ubicacionLogo: z.string().min(1, "Seleccione la ubicación del logo"),
+  instruccionesBordado: z.string().optional(),
 });
 
 type ItemFormData = z.infer<typeof itemSchema>;
@@ -138,6 +139,7 @@ export default function NuevaOrdenPage() {
   const [logoFile, setLogoFile] = useState<{ base64: string; name: string } | null>(null);
 
   // Additional Order Fields
+  const [validityDate, setValidityDate] = useState<string | null>(null);
   const [commitmentDate, setCommitmentDate] = useState<string | null>(null);
   const [paymentTermId, setPaymentTermId] = useState<number | null>(null);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
@@ -198,7 +200,8 @@ export default function NuevaOrdenPage() {
       quantity: 1,
       designName: "",
       usoCfdi: "",
-      notes: "",
+      ubicacionLogo: "",
+      instruccionesBordado: "",
     },
   });
 
@@ -251,7 +254,8 @@ export default function NuevaOrdenPage() {
         quantity: data.quantity,
         designName: data.designName,
         usoCfdi: data.usoCfdi,
-        notes: data.notes,
+        ubicacionLogo: data.ubicacionLogo,
+        instruccionesBordado: data.instruccionesBordado,
       };
 
       if (logoFile && logoFile.base64 && logoFile.base64.trim() !== "") {
@@ -275,7 +279,7 @@ export default function NuevaOrdenPage() {
   // ─── Submit Order ───────────────────────────────────────────────────────
 
   const submitOrderMutation = useMutation({
-    mutationFn: async (payload: { customer: any, items: any[], commitmentDate: string | null, paymentTermId: number | null, paymentMethodId: number | null, paymentPolicy: string | null }) => {
+    mutationFn: async (payload: { customer: any, items: any[], validityDate: string | null, commitmentDate: string | null, paymentTermId: number | null, paymentMethodId: number | null, paymentPolicy: string | null }) => {
       const res = await fetch("/api/odoo/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -331,6 +335,7 @@ export default function NuevaOrdenPage() {
       submitOrderMutation.mutate({
         customer,
         items,
+        validityDate,
         commitmentDate,
         paymentTermId,
         paymentMethodId,
@@ -525,11 +530,14 @@ export default function NuevaOrdenPage() {
                             CFDI: {item.usoCfdi}
                           </Tag>
                         </div>
-                        {item.notes && (
-                          <p className="text-xs text-slate-400 mt-1 italic truncate">
-                            📝 {item.notes}
-                          </p>
-                        )}
+                        <div className="text-xs text-slate-500 mt-1 flex flex-col gap-0.5">
+                          {item.ubicacionLogo && (
+                            <span className="truncate">📍 {item.ubicacionLogo}</span>
+                          )}
+                          {item.instruccionesBordado && (
+                            <span className="italic truncate text-slate-400">📝 {item.instruccionesBordado}</span>
+                          )}
+                        </div>
                       </div>
                       <Tooltip title="Eliminar prenda">
                         <Button
@@ -557,6 +565,17 @@ export default function NuevaOrdenPage() {
               className="border-slate-200 rounded-2xl shadow-sm"
             >
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-700 font-semibold text-xs uppercase tracking-wider mb-2">
+                    Fecha de Vigencia
+                  </label>
+                  <DatePicker
+                    size="large"
+                    className="w-full rounded-xl"
+                    onChange={(_, dateString) => setValidityDate(dateString as string)}
+                    placeholder="Vigencia cotización"
+                  />
+                </div>
                 <div>
                   <label className="block text-slate-700 font-semibold text-xs uppercase tracking-wider mb-2">
                     Fecha Prometida
@@ -837,12 +856,42 @@ export default function NuevaOrdenPage() {
                   <Form.Item
                     label={
                       <span className="text-slate-700 font-semibold text-xs uppercase tracking-wider">
-                        Notas / Instrucciones del Taller
+                        Ubicación del Logo
+                      </span>
+                    }
+                    validateStatus={itemErrors.ubicacionLogo ? "error" : ""}
+                    help={itemErrors.ubicacionLogo?.message}
+                  >
+                    <Controller
+                      name="ubicacionLogo"
+                      control={itemControl}
+                      render={({ field }) => (
+                        <Select
+                          {...field}
+                          size="large"
+                          className="w-full"
+                          placeholder="Frente, Espalda, Hombro..."
+                          options={[
+                            { value: "Frente Izquierdo", label: "Frente Izquierdo" },
+                            { value: "Frente Derecho", label: "Frente Derecho" },
+                            { value: "Espalda Central", label: "Espalda Central" },
+                            { value: "Manga Izquierda", label: "Manga Izquierda" },
+                            { value: "Manga Derecha", label: "Manga Derecha" },
+                          ]}
+                        />
+                      )}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    label={
+                      <span className="text-slate-700 font-semibold text-xs uppercase tracking-wider">
+                        Instrucciones del Taller
                       </span>
                     }
                   >
                     <Controller
-                      name="notes"
+                      name="instruccionesBordado"
                       control={itemControl}
                       render={({ field }) => (
                         <Input.TextArea

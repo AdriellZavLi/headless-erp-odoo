@@ -3,22 +3,26 @@
 import React from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { notification, Button, Tag, Skeleton } from "antd";
+import { notification, Button, Tag, Skeleton, Input } from "antd";
 import { 
   PlayCircleOutlined, 
   CheckCircleOutlined, 
   ClockCircleOutlined, 
   SyncOutlined,
   DashboardOutlined,
-  ShoppingOutlined
+  ShoppingOutlined,
+  CloseOutlined,
+  SearchOutlined
 } from "@ant-design/icons";
 import DashboardHeader from "@/components/DashboardHeader";
 import DeliverModal from "@/components/DeliverModal";
+import AdvanceModal from "@/components/AdvanceModal";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 interface ProductionOrder {
   id: number;
   name: string;
+  partner_id?: [number, string] | false;
   product_id?: [number, string];
   qty_producing: number;
   state: string; // 'confirmed', 'progress', 'done'
@@ -50,11 +54,15 @@ const updateOrderState = async ({ orderId, action }: { orderId: number; action: 
 const OrderCard = ({ 
   order, 
   onMove,
-  onDeliver
+  onDeliver,
+  onCancel,
+  onAdvance
 }: { 
   order: ProductionOrder; 
   onMove: (id: number, action: string) => void;
   onDeliver?: (id: number) => void;
+  onCancel?: (id: number) => void;
+  onAdvance?: (id: number) => void;
 }) => {
   return (
     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 mb-3 flex flex-col gap-3">
@@ -82,15 +90,28 @@ const OrderCard = ({
       {/* Botones de Acción */}
       <div className="mt-2 pt-3 border-t border-slate-100 flex gap-2">
         {order.tag_ids?.includes(1) && (
-          <Button 
-            type="primary" 
-            size="small" 
-            icon={<PlayCircleOutlined />} 
-            className="w-full bg-indigo-600 shadow-sm rounded-lg text-xs font-semibold hover:!bg-indigo-500"
-            onClick={() => onMove(order.id, "start_production")}
-          >
-            Iniciar Prod.
-          </Button>
+          <div className="flex gap-2 w-full">
+            <Button 
+              type="primary" 
+              size="small" 
+              icon={<PlayCircleOutlined />} 
+              className="flex-1 bg-indigo-600 shadow-sm rounded-lg text-xs font-semibold hover:!bg-indigo-500"
+              onClick={() => onAdvance ? onAdvance(order.id) : onMove(order.id, "start_production")}
+            >
+              Iniciar Prod.
+            </Button>
+            {onCancel && (
+              <Button 
+                danger
+                size="small" 
+                icon={<CloseOutlined />} 
+                className="shadow-sm rounded-lg text-xs font-semibold flex-1 whitespace-normal"
+                onClick={() => onCancel(order.id)}
+              >
+                Cancelar
+              </Button>
+            )}
+          </div>
         )}
         {order.tag_ids?.includes(2) && (
           <Button 
@@ -124,7 +145,9 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const [api, contextHolder] = notification.useNotification();
   const [deliverModalOpen, setDeliverModalOpen] = React.useState(false);
+  const [advanceModalOpen, setAdvanceModalOpen] = React.useState(false);
   const [selectedOrderId, setSelectedOrderId] = React.useState<number | null>(null);
+  const [customerFilter, setCustomerFilter] = React.useState("");
 
   const { data: orders = [], isLoading, isError } = useQuery({
     queryKey: ["odoo", "production"],
@@ -151,8 +174,46 @@ export default function DashboardPage() {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async (orderId: number) => {
+      const res = await fetch(`/api/odoo/orders/${orderId}/cancel`, { method: "POST" });
+      if (!res.ok) throw new Error("Error cancelando la orden");
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      api.success({
+        title: "Orden Cancelada",
+        description: "La cotización fue cancelada correctamente.",
+        placement: "bottomRight",
+      });
+      queryClient.invalidateQueries({ queryKey: ["odoo", "production"] });
+    },
+    onError: (error: any) => {
+      api.error({
+        title: "Error de Sincronización",
+        description: error.message || "No se pudo cancelar la orden.",
+        placement: "bottomRight",
+      });
+    },
+  });
+
   const handleMoveOrder = (orderId: number, action: string) => {
     mutation.mutate({ orderId, action });
+  };
+
+  const handleCancelOrder = (orderId: number) => {
+    cancelMutation.mutate(orderId);
+  };
+
+  const handleOpenAdvance = (orderId: number) => {
+    setSelectedOrderId(orderId);
+    setAdvanceModalOpen(true);
+  };
+
+  const handleAdvanceSuccess = (orderId: number) => {
+    handleMoveOrder(orderId, "start_production");
   };
 
   const handleOpenDeliver = (orderId: number) => {
@@ -160,14 +221,26 @@ export default function DashboardPage() {
     setDeliverModalOpen(true);
   };
 
-  // Filtrar órdenes por etiqueta (tag_ids)
-  const pendingOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(1));
-  const inProgressOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(2));
-  const doneOrders = orders.filter(o => o.tag_ids && o.tag_ids.includes(3));
+  // Filtrar órdenes por etiqueta (tag_ids) y cliente
+  const filteredOrders = orders.filter(o => {
+    if (!customerFilter) return true;
+    const customerName = o.partner_id && o.partner_id[1] ? o.partner_id[1].toLowerCase() : "";
+    return customerName.includes(customerFilter.toLowerCase());
+  });
+
+  const pendingOrders = filteredOrders.filter(o => o.tag_ids && o.tag_ids.includes(1));
+  const inProgressOrders = filteredOrders.filter(o => o.tag_ids && o.tag_ids.includes(2));
+  const doneOrders = filteredOrders.filter(o => o.tag_ids && o.tag_ids.includes(3));
 
   return (
     <div className="flex flex-col pb-12 flex-grow">
       {contextHolder}
+      <AdvanceModal 
+        isOpen={advanceModalOpen}
+        orderId={selectedOrderId}
+        onClose={() => setAdvanceModalOpen(false)}
+        onSuccess={handleAdvanceSuccess}
+      />
       <DeliverModal 
         isOpen={deliverModalOpen} 
         orderId={selectedOrderId} 
@@ -187,8 +260,17 @@ export default function DashboardPage() {
             </p>
           </div>
           
-          <div className="flex gap-3">
-            <Link
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            <Input
+              prefix={<SearchOutlined className="text-slate-400" />}
+              placeholder="Buscar por cliente..."
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              className="rounded-xl w-full sm:w-64"
+              allowClear
+            />
+            <div className="flex gap-3">
+              <Link
               href="/dashboard/nueva-orden"
               className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-all duration-150 active:scale-[0.98] shadow-lg shadow-violet-500/10"
             >
@@ -224,7 +306,13 @@ export default function DashboardPage() {
                 <Skeleton active paragraph={{ rows: 2 }} className="bg-white p-4 rounded-xl" />
               ) : pendingOrders.length > 0 ? (
                 pendingOrders.map(order => (
-                  <OrderCard key={order.id} order={order} onMove={handleMoveOrder} />
+                  <OrderCard 
+                    key={order.id} 
+                    order={order} 
+                    onMove={handleMoveOrder} 
+                    onCancel={handleCancelOrder}
+                    onAdvance={handleOpenAdvance}
+                  />
                 ))
               ) : (
                 <div className="h-24 flex items-center justify-center text-slate-400 text-sm font-medium border-2 border-dashed border-slate-200 rounded-xl">

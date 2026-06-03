@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body: { customer: CustomerProfile; items: OrderCartItem[]; commitmentDate?: string | null; paymentTermId?: number | null; paymentMethodId?: number | null; paymentPolicy?: string | null } = await req.json();
+    const body: { customer: CustomerProfile; items: OrderCartItem[]; validityDate?: string | null; commitmentDate?: string | null; paymentTermId?: number | null; paymentMethodId?: number | null; paymentPolicy?: string | null } = await req.json();
     
     if (!body.customer || !body.items || body.items.length === 0) {
       return NextResponse.json({ success: false, error: "Faltan datos del cliente o prendas" }, { status: 400 });
@@ -25,8 +25,10 @@ export async function POST(req: Request) {
         0, 
         {
           product_id: parseInt(item.garment.id, 10), // ID de la prenda (product.product)
-          name: `[BORDADO] ${item.designName} - Notas: ${item.notes || "N/A"}`, // Descripción de la línea
+          name: `[BORDADO] ${item.designName}`, // Descripción de la línea
           product_uom_qty: item.quantity,
+          x_ubicacion_logo: item.ubicacionLogo || "",
+          x_instrucciones_bordado: item.instruccionesBordado || "",
           // En un caso real, el precio unitario se calcula con reglas de lista de precios,
           // o se manda explícitamente si el BFF tiene esa responsabilidad.
         }
@@ -40,7 +42,12 @@ export async function POST(req: Request) {
       // Si tenemos un campo personalizado para Uso CFDI a nivel orden en Odoo:
       // l10n_mx_edi_usage: body.items[0].usoCfdi,
       note: "Orden generada desde portal Headless ERP",
+      x_cajero: session.user.name || "Sistema Headless",
     };
+
+    if (body.validityDate) {
+      orderData.validity_date = body.validityDate;
+    }
 
     if (body.commitmentDate) {
       orderData.commitment_date = body.commitmentDate;
@@ -89,8 +96,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Auto-confirmar la orden de venta
-    await odoo.executeKw("sale.order", "action_confirm", [[newOrderId]]);
+    // REMOVIDO PARA MISIÓN 3: Auto-confirmar la orden de venta (se debe quedar en draft)
+    // await odoo.executeKw("sale.order", "action_confirm", [[newOrderId]]);
     
     // Asignar etiqueta inicial "Pendiente" (ID = 1) usando la sintaxis Many2many
     await odoo.executeKw("sale.order", "write", [
